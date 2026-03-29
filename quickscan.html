@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serial Code 快速掃描器</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f4f4f9; }
+        #video { width: 100%; max-width: 500px; border-radius: 10px; background: #000; }
+        .controls { margin: 20px 0; display: flex; gap: 10px; }
+        button { padding: 12px 24px; font-size: 16px; border: none; border-radius: 5px; cursor: pointer; background: #007bff; color: white; }
+        button:disabled { background: #ccc; }
+        #result-list { width: 100%; max-width: 500px; }
+        .code-item { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+        .copy-btn { background: #28a745; font-size: 14px; padding: 5px 10px; }
+        canvas { display: none; }
+        .loading { color: #666; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <h2>Code 掃描助手</h2>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+
+    <div class="controls">
+        <button id="scan-btn">📷 掃描當前畫面</button>
+    </div>
+
+    <div id="loading-msg" class="loading" style="display:none;">正在辨識中... (第一次載入較慢)</div>
+
+    <div id="result-list">
+        </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const scanBtn = document.getElementById('scan-btn');
+        const resultList = document.getElementById('result-list');
+        const loadingMsg = document.getElementById('loading-msg');
+
+        // 啟動相機
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = stream;
+            } catch (err) {
+                alert("無法啟動相機，請確保已授權權限。");
+            }
+        }
+
+        // 掃描辨識
+        scanBtn.onclick = async () => {
+            loadingMsg.style.display = 'block';
+            scanBtn.disabled = true;
+
+            // 擷取畫面
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // 使用 Tesseract 辨識文字
+            try {
+                const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
+                
+                // 過濾出看起來像 Serial Code 的內容 (通常是大寫英數組合)
+                // 這裡的正則表達式可以根據你的 Code 格式調整，例如 8-16 位英數
+                const foundCodes = text.match(/[A-Z0-9-]{8,20}/g);
+
+                if (foundCodes) {
+                    foundCodes.forEach(code => addResult(code));
+                } else {
+                    alert("未偵測到 Code，請靠近一點再試一次。");
+                }
+            } catch (e) {
+                console.error(e);
+            }
+
+            loadingMsg.style.display = 'none';
+            scanBtn.disabled = false;
+        };
+
+        function addResult(code) {
+            const div = document.createElement('div');
+            div.className = 'code-item';
+            div.innerHTML = `
+                <span><strong>${code}</strong></span>
+                <button class="copy-btn" onclick="copyToClipboard('${code}')">複製</button>
+            `;
+            resultList.prepend(div);
+        }
+
+        window.copyToClipboard = (text) => {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('已複製到剪貼簿: ' + text);
+            });
+        };
+
+        startCamera();
+    </script>
+</body>
+</html>
