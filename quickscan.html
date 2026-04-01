@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>19位序號定格掃描器 Pro</title>
+    <title>19位序號全能掃描器 v8</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         :root {
@@ -11,26 +11,39 @@
             --panel-bg: rgba(28, 28, 30, 0.98);
             --accent: #00e676;
             --text: #ffffff;
+            --secondary: rgba(255, 255, 255, 0.15);
         }
 
         body, html { margin: 0; padding: 0; height: 100%; background: var(--bg); font-family: -apple-system, sans-serif; overflow: hidden; }
 
-        #video-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
+        /* 顯示區域 */
+        #view-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
         #video { width: 100%; height: 100%; object-fit: cover; }
-        #freeze-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: none; z-index: 2; }
+        #freeze-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: none; z-index: 2; }
         #overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
 
+        /* 頂部狀態 */
         .top-bar { position: absolute; top: 15px; width: 100%; display: flex; justify-content: center; z-index: 10; }
         .status-badge { background: rgba(0,0,0,0.8); color: var(--accent); padding: 8px 16px; border-radius: 20px; font-size: 13px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
 
-        .bottom-sheet { position: absolute; bottom: 0; width: 100%; height: 42%; background: var(--panel-bg); backdrop-filter: blur(25px); border-radius: 24px 24px 0 0; display: flex; flex-direction: column; z-index: 10; border-top: 1px solid rgba(255,255,255,0.2); }
+        /* 底部面板 */
+        .bottom-sheet { position: absolute; bottom: 0; width: 100%; height: 45%; background: var(--panel-bg); backdrop-filter: blur(25px); border-radius: 24px 24px 0 0; display: flex; flex-direction: column; z-index: 10; border-top: 1px solid rgba(255,255,255,0.2); }
         .handle { width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 4px; margin: 12px auto; }
 
-        .controls { padding: 0 20px 15px; display: flex; gap: 12px; }
-        #scan-btn { flex: 5; background: var(--accent); border: none; padding: 16px; border-radius: 16px; font-weight: bold; font-size: 16px; color: #000; box-shadow: 0 4px 15px rgba(0, 230, 118, 0.3); transition: 0.2s; }
-        #scan-btn.frozen { background: #444; color: white; }
-        #clear-btn { flex: 1; background: rgba(255,255,255,0.1); color: white; border: none; border-radius: 16px; font-size: 18px; }
+        .controls { padding: 0 20px 15px; display: flex; flex-direction: column; gap: 10px; }
+        .main-btns { display: flex; gap: 10px; }
+        
+        button { border: none; border-radius: 16px; font-weight: bold; transition: 0.2s; cursor: pointer; }
+        #scan-btn { flex: 2; background: var(--accent); color: #000; padding: 16px; font-size: 16px; box-shadow: 0 4px 15px rgba(0, 230, 118, 0.3); }
+        #upload-btn { flex: 1; background: var(--secondary); color: white; padding: 16px; font-size: 16px; }
+        #clear-btn { background: rgba(207, 102, 121, 0.2); color: #cf6679; padding: 10px; font-size: 14px; width: 100%; margin-top: 5px; }
 
+        #scan-btn.frozen { background: #444; color: white; }
+
+        /* 隱藏的檔案輸入框 */
+        #file-input { display: none; }
+
+        /* 列表樣式 */
         #result-list { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
         .code-item { background: rgba(255,255,255,0.06); margin-bottom: 10px; padding: 14px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.1); }
         .code-text { color: var(--accent); font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold; }
@@ -43,21 +56,25 @@
 </head>
 <body>
 
-    <div id="video-container">
+    <div id="view-container">
         <video id="video" autoplay playsinline></video>
         <img id="freeze-frame">
         <canvas id="overlay-canvas"></canvas>
     </div>
 
     <div class="top-bar">
-        <div class="status-badge" id="status">智能校正模式：S→5, Q→0</div>
+        <div class="status-badge" id="status">準備就緒 (相機/相簿)</div>
     </div>
 
     <div class="bottom-sheet">
         <div class="handle"></div>
         <div class="controls">
-            <button id="scan-btn">📷 拍下並掃描</button>
-            <button id="clear-btn" title="清空全部">🗑️</button>
+            <div class="main-btns">
+                <button id="scan-btn">📷 拍照掃描</button>
+                <button id="upload-btn">📂 相簿上傳</button>
+            </div>
+            <button id="clear-btn">🗑️ 清空所有記錄</button>
+            <input type="file" id="file-input" accept="image/*">
         </div>
         <div id="result-list"></div>
     </div>
@@ -70,6 +87,8 @@
         const overlayCanvas = document.getElementById('overlay-canvas');
         const tempCanvas = document.getElementById('temp-canvas');
         const scanBtn = document.getElementById('scan-btn');
+        const uploadBtn = document.getElementById('upload-btn');
+        const fileInput = document.getElementById('file-input');
         const clearBtn = document.getElementById('clear-btn');
         const resultList = document.getElementById('result-list');
         const statusBadge = document.getElementById('status');
@@ -78,111 +97,127 @@
         let worker = null;
         let isFrozen = false;
 
-        // 初始化辨識引擎，設定只允許英數與連字號
         async function initWorker() {
-            statusBadge.innerText = "正在載入 AI 引擎...";
-            worker = await Tesseract.createWorker('eng', 1, {
-                logger: m => console.log(m)
-            });
-            // 設定白名單：排除容易出錯的 S 和 Q (如果你的序號真的完全沒有這兩個字)
+            statusBadge.innerText = "載入辨識引擎...";
+            worker = await Tesseract.createWorker('eng');
             await worker.setParameters({
                 tessedit_char_whitelist: 'ABCDEFGHIJKLMNPRTUVWXYZ0123456789-',
             });
-            statusBadge.innerText = "✅ 引擎就緒 (自動修正已啟用)";
+            statusBadge.innerText = "✅ 引擎就緒";
         }
 
         async function startCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
-            });
-            video.srcObject = stream;
-            video.onloadedmetadata = () => resizeCanvas();
-        }
-
-        function resizeCanvas() {
-            overlayCanvas.width = window.innerWidth;
-            overlayCanvas.height = window.innerHeight;
-        }
-
-        scanBtn.onclick = async () => {
-            if (isFrozen) {
-                unfreeze();
-                return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment', width: { ideal: 1920 } } 
+                });
+                video.srcObject = stream;
+            } catch (e) {
+                statusBadge.innerText = "❌ 無法開啟相機";
             }
+        }
 
+        // --- 核心辨識函式 ---
+        async function performOcr(sourceElement) {
             if (!worker) await initWorker();
+            statusBadge.innerText = "🔍 正在分析圖片...";
             
-            freeze();
-            statusBadge.innerText = "🔍 正在進行黑白高對比分析...";
-            scanBtn.disabled = true;
-
             const tCtx = tempCanvas.getContext('2d');
-            tempCanvas.width = video.videoWidth;
-            tempCanvas.height = video.videoHeight;
             
-            // --- 影像預處理：轉灰階並增加對比度，讓字體更清晰 ---
-            tCtx.filter = 'grayscale(100%) contrast(160%) brightness(110%)';
-            tCtx.drawImage(video, 0, 0);
+            // 處理來源可能是 video 或 img
+            const srcW = sourceElement.videoWidth || sourceElement.naturalWidth;
+            const srcH = sourceElement.videoHeight || sourceElement.naturalHeight;
+            
+            tempCanvas.width = srcW;
+            tempCanvas.height = srcH;
+            
+            // 預處理濾鏡
+            tCtx.filter = 'grayscale(100%) contrast(150%) brightness(110%)';
+            tCtx.drawImage(sourceElement, 0, 0, srcW, srcH);
 
             const { data } = await worker.recognize(tempCanvas);
             
-            const vWidth = video.videoWidth;
-            const vHeight = video.videoHeight;
-            const screenRatio = window.innerWidth / window.innerHeight;
-            const videoRatio = vWidth / vHeight;
-            let scale, offsetX = 0, offsetY = 0;
-            if (screenRatio > videoRatio) {
-                scale = window.innerWidth / vWidth;
-                offsetY = (window.innerHeight - vHeight * scale) / 2;
-            } else {
-                scale = window.innerHeight / vHeight;
-                offsetX = (window.innerWidth - vWidth * scale) / 2;
-            }
-
+            // 清除舊的高亮
             const ctx = overlayCanvas.getContext('2d');
+            overlayCanvas.width = window.innerWidth;
+            overlayCanvas.height = window.innerHeight;
             ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+            // 計算縮放比例 (以適應螢幕顯示)
+            const screenW = window.innerWidth;
+            const screenH = window.innerHeight;
+            const scale = Math.min(screenW / srcW, screenH / srcH);
+            const offsetX = (screenW - srcW * scale) / 2;
+            const offsetY = (screenH - srcH * scale) / 2;
 
             let count = 0;
             data.words.forEach(word => {
-                // 1. 先獲取文字並轉大寫
-                let rawText = word.text.toUpperCase();
+                let text = word.text.toUpperCase().replace(/S/g, '5').replace(/Q/g, '0');
+                const match = text.match(/[A-Z0-9-]{19}/);
                 
-                // 2. 自動修正邏輯：將 S 換成 5，Q 換成 0
-                let correctedText = rawText.replace(/S/g, '5').replace(/Q/g, '0');
-
-                // 3. 匹配 19 位格式
-                const codeMatch = correctedText.match(/[A-Z0-9-]{19}/);
-                
-                if (codeMatch) {
+                if (match) {
                     count++;
-                    const finalCode = codeMatch[0];
+                    const code = match[0];
                     const { x0, y0, x1, y1 } = word.bbox;
                     
                     ctx.fillStyle = 'rgba(0, 230, 118, 0.3)';
                     ctx.strokeStyle = '#00e676';
                     ctx.lineWidth = 2;
-                    const rx = x0 * scale + offsetX;
-                    const ry = y0 * scale + offsetY;
-                    const rw = (x1 - x0) * scale;
-                    const rh = (y1 - y0) * scale;
-                    ctx.fillRect(rx, ry, rw, rh);
-                    ctx.strokeRect(rx, ry, rw, rh);
-
-                    addCode(finalCode);
+                    ctx.fillRect(x0 * scale + offsetX, y0 * scale + offsetY, (x1 - x0) * scale, (y1 - y0) * scale);
+                    ctx.strokeRect(x0 * scale + offsetX, y0 * scale + offsetY, (x1 - x0) * scale, (y1 - y0) * scale);
+                    
+                    addCode(code);
                 }
             });
 
-            statusBadge.innerText = count > 0 ? `完成！偵測到 ${count} 組` : "未發現序號，請點擊返回重試";
+            statusBadge.innerText = count > 0 ? `偵測到 ${count} 組序號` : "未發現 19 位序號";
             scanBtn.disabled = false;
+        }
+
+        // --- 事件處理 ---
+
+        // 拍照掃描
+        scanBtn.onclick = () => {
+            if (isFrozen) {
+                unfreeze();
+                return;
+            }
+            freezeFromVideo();
+            performOcr(video);
         };
 
-        function freeze() {
+        // 相簿上傳
+        uploadBtn.onclick = () => fileInput.click();
+
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                freezeFrame.src = event.target.result;
+                freezeFrame.onload = () => {
+                    freezeFromImage();
+                    performOcr(freezeFrame);
+                };
+            };
+            reader.readAsDataURL(file);
+        };
+
+        function freezeFromVideo() {
             const tCtx = tempCanvas.getContext('2d');
-            tCtx.filter = 'none'; // 定格畫面用原色，辨識才用黑白
+            tCtx.filter = 'none';
             tempCanvas.width = video.videoWidth;
             tempCanvas.height = video.videoHeight;
             tCtx.drawImage(video, 0, 0);
             freezeFrame.src = tempCanvas.toDataURL('image/jpeg');
+            freezeFrame.style.display = 'block';
+            isFrozen = true;
+            scanBtn.innerText = "🔄 返回相機";
+            scanBtn.classList.add('frozen');
+        }
+
+        function freezeFromImage() {
             freezeFrame.style.display = 'block';
             isFrozen = true;
             scanBtn.innerText = "🔄 返回相機";
@@ -194,9 +229,10 @@
             const ctx = overlayCanvas.getContext('2d');
             ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
             isFrozen = false;
-            scanBtn.innerText = "📷 拍下並掃描";
+            scanBtn.innerText = "📷 拍照掃描";
             scanBtn.classList.remove('frozen');
             statusBadge.innerText = "準備就緒";
+            fileInput.value = ""; // 重置檔案輸入
         }
 
         function addCode(code) {
@@ -227,7 +263,7 @@
             document.getElementById(`item-${code}`).remove();
         };
 
-        clearBtn.onclick = () => { if(confirm("清除所有記錄？")) { scannedSet.clear(); resultList.innerHTML = ''; } };
+        clearBtn.onclick = () => { if(confirm("確定清空所有記錄？")) { scannedSet.clear(); resultList.innerHTML = ''; } };
 
         startCamera();
         initWorker();
