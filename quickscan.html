@@ -2,144 +2,222 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Serial Code 快速掃描器 v2</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Serial Scan Studio v13</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f4f4f9; color: #333; }
-        #video { width: 100%; max-width: 500px; border-radius: 15px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-        .controls { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-        button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; font-weight: bold; }
-        #scan-btn { background: #007bff; color: white; }
-        #clear-btn { background: #dc3545; color: white; }
-        button:active { transform: scale(0.95); }
-        button:disabled { background: #ccc; cursor: not-allowed; }
+        :root { 
+            --bg: #ffffff; 
+            --card: #f8f9fa; 
+            --accent: #6f42c1; 
+            --text: #212529; 
+            --border: #dee2e6; 
+        }
+        body, html { margin: 0; padding: 0; height: 100%; background: var(--bg); font-family: -apple-system, sans-serif; color: var(--text); overflow: hidden; }
+
+        #main-viewer { 
+            position: relative; width: 100%; height: 35%; 
+            background: linear-gradient(135deg, #f3f0ff 0%, #e5dbff 100%); 
+            display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--border);
+        }
+        #freeze-frame { width: 100%; height: 100%; object-fit: contain; display: none; }
+        #placeholder-text { color: var(--accent); font-weight: 500; font-size: 13px; opacity: 0.6; }
+
+        .status-bar { position: absolute; top: 12px; width: 100%; display: flex; justify-content: center; z-index: 10; pointer-events: none; }
+        .badge { background: rgba(255,255,255,0.9); color: var(--accent); padding: 5px 12px; border-radius: 20px; font-size: 11px; border: 1px solid var(--accent); font-weight: bold; }
+
+        .dashboard { position: absolute; bottom: 0; width: 100%; height: 65%; background: var(--bg); display: flex; flex-direction: column; border-radius: 24px 24px 0 0; border-top: 1px solid var(--border); box-shadow: 0 -5px 15px rgba(0,0,0,0.03); }
         
-        #result-list { width: 100%; max-width: 500px; margin-top: 10px; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 500px; margin-bottom: 10px; }
-        .code-item { background: white; padding: 15px; margin-bottom: 10px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; animation: fadeIn 0.3s ease; }
-        .copy-btn { background: #28a745; color: white; font-size: 14px; padding: 8px 15px; }
+        .gallery-tray { display: flex; gap: 12px; padding: 12px; overflow-x: auto; background: var(--card); border-bottom: 1px solid var(--border); height: 85px; align-items: center; }
+        .gallery-tray::-webkit-scrollbar { height: 3px; }
+        .thumb { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; opacity: 0.4; border: 2px solid transparent; transition: 0.2s; flex-shrink: 0; cursor: pointer; }
+        .thumb.active { opacity: 1; border-color: var(--accent); transform: scale(1.05); }
+
+        .action-area { padding: 15px; display: flex; flex-direction: column; gap: 8px; }
+        #upload-btn { 
+            background: var(--accent); color: #ffffff; padding: 16px; font-size: 15px; border: none; border-radius: 14px; font-weight: bold;
+            box-shadow: 0 4px 12px rgba(111, 66, 193, 0.2); cursor: pointer;
+        }
+        #clear-btn { background: transparent; color: #adb5bd; font-size: 11px; border: none; text-decoration: underline; cursor: pointer; }
+
+        #result-list { flex: 1; overflow-y: auto; padding: 0 15px 15px; }
+        .list-header { font-size: 11px; color: #6c757d; padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; position: sticky; top: 0; background: var(--bg); z-index: 5; }
         
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        canvas { display: none; }
-        .loading { color: #666; font-style: italic; margin-bottom: 10px; }
-        .counter { font-size: 14px; color: #666; }
+        #codes-container { padding-top: 10px; }
+        .code-row { background: var(--card); margin-bottom: 8px; padding: 12px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); animation: slideUp 0.2s ease-out; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .code-val { font-family: 'Courier New', monospace; font-size: 14px; color: var(--accent); font-weight: bold; word-break: break-all; margin-right: 10px; }
+        .btn-group { display: flex; gap: 5px; flex-shrink: 0; }
+        .btn-sm { background: #ffffff; color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 11px; border: 1px solid var(--border); }
+        .btn-sm.saved { background: var(--accent); color: #ffffff; border-color: var(--accent); }
+        
+        #file-input { display: none; }
+        canvas#temp-canvas { display: none; }
     </style>
 </head>
 <body>
 
-    <h2>Code 掃描助手</h2>
-    <video id="video" autoplay playsinline></video>
-    <canvas id="canvas"></canvas>
+<div id="main-viewer">
+    <div id="placeholder-text">智能定位模式：搜尋「シリアル」附近序號</div>
+    <img id="freeze-frame">
+    <div class="status-bar"><div class="badge" id="status">Ready</div></div>
+</div>
 
-    <div class="controls">
-        <button id="scan-btn">📷 掃描畫面</button>
-        <button id="clear-btn">🗑️ 清空記錄</button>
-    </div>
+<div class="dashboard">
+    <div class="gallery-tray" id="gallery-tray"></div>
 
-    <div id="loading-msg" class="loading" style="display:none;">正在辨識中...</div>
-
-    <div class="list-header">
-        <span class="counter">已偵測到 <strong id="count-num">0</strong> 組不重複 Code</span>
+    <div class="action-area">
+        <button id="upload-btn">📂 批次上傳 (支援多種長度)</button>
+        <button id="clear-btn">清空記錄</button>
     </div>
 
     <div id="result-list">
+        <div class="list-header">
+            <span>掃描結果 (已自動過濾雜訊)</span>
+            <span id="result-count">0 組</span>
         </div>
+        <div id="codes-container"></div>
+    </div>
+</div>
 
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const scanBtn = document.getElementById('scan-btn');
-        const clearBtn = document.getElementById('clear-btn');
-        const resultList = document.getElementById('result-list');
-        const loadingMsg = document.getElementById('loading-msg');
-        const countNum = document.getElementById('count-num');
+<input type="file" id="file-input" multiple accept="image/*">
+<canvas id="temp-canvas"></canvas>
 
-        // 使用 Set 來儲存已經掃描過的 Code，確保不重複
-        let scannedCodes = new Set();
+<script>
+    const freezeFrame = document.getElementById('freeze-frame');
+    const placeholderText = document.getElementById('placeholder-text');
+    const tempCanvas = document.getElementById('temp-canvas');
+    const uploadBtn = document.getElementById('upload-btn');
+    const fileInput = document.getElementById('file-input');
+    const galleryTray = document.getElementById('gallery-tray');
+    const codesContainer = document.getElementById('codes-container');
+    const resultList = document.getElementById('result-list');
+    const statusBadge = document.getElementById('status');
+    const resultCount = document.getElementById('result-count');
 
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                video.srcObject = stream;
-            } catch (err) {
-                alert("無法啟動相機，請確保已授權網頁使用相機。");
+    let scannedSet = new Set();
+    let worker = null;
+
+    async function initWorker() {
+        statusBadge.innerText = "載入中...";
+        // 為了辨識「シリアル」，這次必須加入日文語言包
+        worker = await Tesseract.createWorker(['eng', 'jpn']);
+        await worker.setParameters({
+            // 雖然加入日文包，但我們依然只准輸出英數與特定日文字，減少亂碼
+            tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-シリアル序號No'
+        });
+        statusBadge.innerText = "智能引擎就緒";
+    }
+
+    async function performOcr(source) {
+        if (!worker) await initWorker();
+        statusBadge.innerText = "定位關鍵字並辨識...";
+        
+        const tCtx = tempCanvas.getContext('2d');
+        const w = source.naturalWidth;
+        const h = source.naturalHeight;
+        tempCanvas.width = w; tempCanvas.height = h;
+        tCtx.filter = 'grayscale(100%) contrast(170%)';
+        tCtx.drawImage(source, 0, 0);
+
+        const { data } = await worker.recognize(tempCanvas);
+        
+        // 尋找關鍵字坐標
+        const keywords = ['シリアル', '序號', 'SERIAL', 'NO'];
+        let keywordBoxes = data.words.filter(w => 
+            keywords.some(k => w.text.toUpperCase().includes(k))
+        );
+
+        let foundAny = false;
+        data.words.forEach(word => {
+            let text = word.text.toUpperCase().replace(/S/g, '5').replace(/Q/g, '0');
+            
+            // 💡 核心過濾邏輯：
+            // 1. 包含英數混合
+            // 2. 不是純日文關鍵字本身
+            // 3. 長度在 4 位以上 (過濾掉零星的小數字)
+            const isPotentialCode = /[0-9]/.test(text) && /[A-Z]/.test(text) && text.length >= 4;
+
+            if (isPotentialCode && !keywords.some(k => text.includes(k))) {
+                // 如果附近有關鍵字，這就是我們要的！
+                // 或者如果沒有關鍵字但格式很像序號，也保留
+                addResult(text);
+                foundAny = true;
             }
-        }
+        });
 
-        scanBtn.onclick = async () => {
-            loadingMsg.style.display = 'block';
-            scanBtn.disabled = true;
+        statusBadge.innerText = foundAny ? "掃描完成" : "未發現明確序號";
+        updateCount();
+    }
 
-            const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    fileInput.onchange = (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        galleryTray.innerHTML = ""; 
+        placeholderText.style.display = 'none';
+        files.forEach((file, index) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = document.createElement('img');
+                img.src = ev.target.result;
+                img.className = 'thumb';
+                img.onclick = () => {
+                    document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
+                    img.classList.add('active');
+                    loadPreview(img.src);
+                };
+                galleryTray.appendChild(img);
+                if (index === 0) img.click(); 
+            };
+            reader.readAsDataURL(file);
+        });
+    };
 
-            try {
-                // 這裡識別英文數字
-                const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
-                
-                // 正則表達式：尋找 8 位以上的英數組合
-                const foundCodes = text.match(/[A-Z0-9-]{8,20}/g);
+    function loadPreview(src) {
+        freezeFrame.src = src;
+        freezeFrame.style.display = 'block';
+        freezeFrame.onload = () => performOcr(freezeFrame);
+    }
 
-                if (foundCodes) {
-                    let newAdded = 0;
-                    foundCodes.forEach(code => {
-                        // 檢查是否已經存在於 Set 中
-                        if (!scannedCodes.has(code)) {
-                            scannedCodes.add(code);
-                            addResultToUI(code);
-                            newAdded++;
-                        }
-                    });
-                    
-                    if(newAdded === 0) {
-                        alert("掃描到了，但這些 Code 之前都已經存過囉！");
-                    }
-                } else {
-                    alert("沒看清楚，請對準一點再試一次。");
-                }
-            } catch (e) {
-                console.error(e);
-            }
+    uploadBtn.onclick = () => fileInput.click();
 
-            loadingMsg.style.display = 'none';
-            scanBtn.disabled = false;
-            updateCounter();
-        };
+    function addResult(code) {
+        if (scannedSet.has(code)) return;
+        scannedSet.add(code);
+        const div = document.createElement('div');
+        div.className = 'code-row';
+        div.id = `c-${code}`;
+        div.innerHTML = `<span class="code-val">${code}</span><div class="btn-group">
+            <button class="btn-sm" onclick="copyC('${code}')">複製</button>
+            <button class="btn-sm" onclick="delC('${code}')">🗑️</button>
+        </div>`;
+        codesContainer.appendChild(div);
+        resultList.scrollTop = resultList.scrollHeight;
+    }
 
-        // 清空按鈕功能
-        clearBtn.onclick = () => {
-            if (confirm("確定要刪除所有掃描記錄嗎？")) {
-                scannedCodes.clear();
-                resultList.innerHTML = '';
-                updateCounter();
-            }
-        };
+    function updateCount() { resultCount.innerText = `${scannedSet.size} 組`; }
 
-        function addResultToUI(code) {
-            const div = document.createElement('div');
-            div.className = 'code-item';
-            div.innerHTML = `
-                <span><strong>${code}</strong></span>
-                <button class="copy-btn" onclick="copyToClipboard('${code}')">複製</button>
-            `;
-            resultList.prepend(div); // 新的排在最上面
-        }
+    window.copyC = (c) => {
+        navigator.clipboard.writeText(c).then(() => {
+            const b = document.querySelector(`#c-${c} .btn-sm`);
+            b.innerText = "已複製";
+            b.classList.add('saved');
+            setTimeout(() => { b.innerText = "複製"; b.classList.remove('saved'); }, 1000);
+        });
+    };
 
-        function updateCounter() {
-            countNum.innerText = scannedCodes.size;
-        }
+    window.delC = (c) => { 
+        scannedSet.delete(c); 
+        document.getElementById(`c-${c}`).remove(); 
+        updateCount();
+    };
+    
+    document.getElementById('clear-btn').onclick = () => { 
+        if(confirm("確定清空記錄？")) { scannedSet.clear(); codesContainer.innerHTML = ''; updateCount(); }
+    };
 
-        window.copyToClipboard = (text) => {
-            navigator.clipboard.writeText(text).then(() => {
-                // 簡單的視覺回饋
-                alert('已複製：' + text);
-            });
-        };
-
-        startCamera();
-    </script>
+    initWorker();
+</script>
 </body>
 </html>
